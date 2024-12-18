@@ -1,10 +1,3 @@
-fn pad_string(input: &str) -> String {
-  let padding_needed = (4 - (input.len() % 4)) % 4;
-  let mut padded = input.to_string();
-  padded.extend(std::iter::repeat('\0').take(padding_needed));
-  padded
-}
-
 /**
  * Returns a replacement byte array that's padded with a given byte (usually best to be 0)
  */
@@ -23,13 +16,11 @@ pub fn pad_block(input: &[u8], target_size: usize, pad_byte: u8) -> Vec<u8> {
   new_vec
 }
 
-pub fn split_into_blocks(input: &str) -> Vec<String> {
-  let block_size = input.len() / 4;
+pub fn split_into_blocks(input: &[u8], num_blocks: usize) -> Vec<&[u8]> {
+  let block_size = input.len() / num_blocks;
   input
-      .chars()
-      .collect::<Vec<char>>()
       .chunks(block_size)
-      .map(|chunk| chunk.iter().collect::<String>())
+      .map(|chunk| chunk)
       .collect()
 }
 
@@ -46,12 +37,12 @@ pub fn calculate_ec_block(blocks: &[&[u8]]) -> Vec<u8> {
   ec_block
 }
 
-pub fn reconstruct_block(blocks: &[&[u8]], ec_block: &[u8]) -> Vec<u8> {
-  let block_size = blocks[0].len();
+pub fn reconstruct_block(base_blocks: &[&[u8]], ec_block: &[u8]) -> Vec<u8> {
+  let block_size = base_blocks[0].len();
   let mut reconstructed = vec![0u8; block_size];
 
   // XOR all available blocks and EC block
-  for block in blocks {
+  for block in base_blocks {
       for (i, c) in block.iter().enumerate() {
           reconstructed[i] ^= c;
       }
