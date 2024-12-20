@@ -14,7 +14,7 @@ mod linux_impl {
     }
 
     #[repr(align(4096))]
-    struct AlignedPage([u8; BLOCK_SIZE]);
+    pub struct AlignedPage([u8; BLOCK_SIZE]);
 
     impl IOUringDevice {
         pub fn new(device_path: &str, ring: Arc<Mutex<IoUring>>) -> std::io::Result<Self> {
