@@ -1,12 +1,11 @@
 #[cfg(target_os = "linux")]
 mod linux_impl {
+    const BLOCK_SIZE: usize = 4096;
     use io_uring::{opcode, IoUring};
     use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::io::AsRawFd;
     use std::sync::Arc;
     use tokio::sync::Mutex;
-
-    const BLOCK_SIZE: usize = 4096;
 
     pub struct IOUringDevice {
         fd: Option<std::fs::File>,
@@ -14,7 +13,7 @@ mod linux_impl {
     }
 
     #[repr(align(4096))]
-    pub struct AlignedPage([u8; BLOCK_SIZE]);
+    pub struct AlignedPage(pub [u8; BLOCK_SIZE]);
 
     impl IOUringDevice {
         pub fn new(device_path: &str, ring: Arc<Mutex<IoUring>>) -> std::io::Result<Self> {
@@ -100,30 +99,44 @@ mod linux_impl {
 #[cfg(target_os = "linux")]
 pub use linux_impl::IOUringDevice;
 
-// #[tokio::main]
-// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//     // Create a shared io_uring instance
-//     let ring = Arc::new(Mutex::new(IoUring::new(128)?));
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use io_uring::IoUring;
+    use linux_impl::{AlignedPage, IOUringDevice};
+    use tokio::sync::Mutex;
 
-//     // Create a new device instance
-//     let mut device = IOUringDevice::new("/tmp/test1", ring)?;
+    use super::*;
+    use std::sync::Arc;
 
-//     // Example: Write to offset 0
-//     let mut write_data = [0u8; BLOCK_SIZE];
-//     let hello = b"Hello, world!\n";
-//     write_data[..hello.len()].copy_from_slice(hello);
-//     let write_page = AlignedPage(write_data);
+    const BLOCK_SIZE: usize = 4096;
 
-//     println!("Writing bytes: {:?}", &write_page.0[..hello.len()]);
+    #[tokio::test]
+    async fn test_io_uring_read_write() -> Result<(), Box<dyn std::error::Error>> {
+        // Create a shared io_uring instance
+        let ring = Arc::new(Mutex::new(IoUring::new(128)?));
 
-//     device.write_block(0, write_page).await?;
-//     println!("Write completed");
+        // Create a temporary file path
+        let temp_file = tempfile::NamedTempFile::new()?;
+        let temp_path = temp_file.path().to_str().unwrap();
 
-//     // Example: Read from offset 0
-//     let data = device.read_block(0).await?;
-//     println!("Read {} bytes", data.0.len());
+        // Create a new device instance
+        let mut device = IOUringDevice::new(temp_path, ring)?;
 
-//     println!("Message: {}", String::from_utf8_lossy(&data.0));
+        // Test data
+        let mut write_data = [0u8; BLOCK_SIZE];
+        let hello = b"Hello, world!\n";
+        write_data[..hello.len()].copy_from_slice(hello);
+        let write_page = AlignedPage(write_data);
 
-//     Ok(())
-// }
+        // Write test
+        device.write_block(0, write_page).await?;
+
+        // Read test
+        let read_page = device.read_block(0).await?;
+
+        // Verify the contents
+        assert_eq!(&read_page.0[..hello.len()], hello);
+
+        Ok(())
+    }
+}
