@@ -139,4 +139,38 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_io_uring_sqpoll() -> Result<(), Box<dyn std::error::Error>> {
+        // Create a shared io_uring instance with SQPOLL enabled
+        let ring = Arc::new(Mutex::new(
+            IoUring::builder()
+                .setup_sqpoll(2000) // 2000ms timeout
+                .build(128)?,
+        ));
+
+        // Create a temporary file path
+        let temp_file = tempfile::NamedTempFile::new()?;
+        let temp_path = temp_file.path().to_str().unwrap();
+
+        // Create a new device instance
+        let mut device = IOUringDevice::new(temp_path, ring)?;
+
+        // Test data
+        let mut write_data = [0u8; BLOCK_SIZE];
+        let test_data = b"Testing SQPOLL mode!\n";
+        write_data[..test_data.len()].copy_from_slice(test_data);
+        let write_page = AlignedPage(write_data);
+
+        // Write test
+        device.write_block(0, write_page).await?;
+
+        // Read test
+        let read_page = device.read_block(0).await?;
+
+        // Verify the contents
+        assert_eq!(&read_page.0[..test_data.len()], test_data);
+
+        Ok(())
+    }
 }
