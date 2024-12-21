@@ -44,7 +44,7 @@ mod linux_impl {
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
-    // Convenience page types
+    // Convenience 4k (4096)
     create_aligned_page!(Page4K, 4096);
 
     pub struct IOUringDevice<const BLOCK_SIZE: usize> {
