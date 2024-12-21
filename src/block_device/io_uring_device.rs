@@ -7,7 +7,7 @@ pub trait AlignedBuffer {
 }
 
 /**
- * Macro to create an aligned page type
+ * Macro to create an aligned page type for a given size
  *
  * This macro creates a new struct with the given name and alignment,
  * and implements the AlignedBuffer trait for it.
