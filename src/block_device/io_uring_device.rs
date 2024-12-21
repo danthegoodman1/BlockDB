@@ -1,41 +1,51 @@
+// Trait for aligned pages to implement
+#[cfg(target_os = "linux")]
+pub trait AlignedBuffer {
+    fn as_ptr(&self) -> *const u8;
+    fn as_mut_ptr(&mut self) -> *mut u8;
+    fn len(&self) -> usize;
+}
+
+/**
+ * Macro to create an aligned page type
+ *
+ * This macro creates a new struct with the given name and alignment,
+ * and implements the AlignedBuffer trait for it.
+ *
+ * You might need to import the AlignedBuffer trait to use this macro.
+ */
+#[macro_export]
+#[cfg(target_os = "linux")]
+macro_rules! create_aligned_page {
+    ($name:ident, $alignment:expr) => {
+        #[repr(align($alignment))]
+        pub struct $name<const N: usize>(pub [u8; N]);
+
+        impl<const N: usize> AlignedBuffer for $name<N> {
+            fn as_ptr(&self) -> *const u8 {
+                self.0.as_ptr()
+            }
+            fn as_mut_ptr(&mut self) -> *mut u8 {
+                self.0.as_mut_ptr()
+            }
+            fn len(&self) -> usize {
+                self.0.len()
+            }
+        }
+    };
+}
+
 #[cfg(target_os = "linux")]
 mod linux_impl {
+    use super::AlignedBuffer;
     use io_uring::{opcode, IoUring};
     use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::io::AsRawFd;
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
-    // Trait for aligned pages to implement
-    pub trait AlignedBuffer {
-        fn as_ptr(&self) -> *const u8;
-        fn as_mut_ptr(&mut self) -> *mut u8;
-        fn len(&self) -> usize;
-    }
-
-    // Implement it for macro-generated types
-    macro_rules! create_aligned_page {
-        ($name:ident, $alignment:expr) => {
-            #[repr(align($alignment))]
-            pub struct $name<const N: usize>(pub [u8; N]);
-
-            impl<const N: usize> AlignedBuffer for $name<N> {
-                fn as_ptr(&self) -> *const u8 {
-                    self.0.as_ptr()
-                }
-                fn as_mut_ptr(&mut self) -> *mut u8 {
-                    self.0.as_mut_ptr()
-                }
-                fn len(&self) -> usize {
-                    self.0.len()
-                }
-            }
-        };
-    }
-
-    // Create our page types
+    // Convenience page types
     create_aligned_page!(Page4K, 4096);
-    create_aligned_page!(Page512, 512);
 
     pub struct IOUringDevice<const BLOCK_SIZE: usize> {
         fd: Option<std::fs::File>,
@@ -183,6 +193,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_io_uring_sqpoll() -> Result<(), Box<dyn std::error::Error>> {
+        create_aligned_page!(Page4K, 4096); // test creating an aliged page with a macro
+
         // Create a shared io_uring instance with SQPOLL enabled
         let ring = Arc::new(Mutex::new(
             IoUring::builder()
