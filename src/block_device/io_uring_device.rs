@@ -64,6 +64,7 @@ mod linux_impl {
             Ok(Self { fd: Some(fd), ring })
         }
 
+        /// Reads a block from the device into the given buffer.
         pub async fn read_block<T: AlignedBuffer>(
             &mut self,
             offset: u64,
@@ -97,6 +98,7 @@ mod linux_impl {
             Ok(())
         }
 
+        /// Writes a block to the device from the given buffer.
         pub async fn write_block<T: AlignedBuffer>(
             &mut self,
             offset: u64,
@@ -115,6 +117,42 @@ mod linux_impl {
             unsafe {
                 ring.submission()
                     .push(&write_e)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            }
+
+            ring.submit_and_wait(1)?;
+
+            // Process completion
+            while let Some(cqe) = ring.completion().next() {
+                if cqe.result() < 0 {
+                    return Err(std::io::Error::from_raw_os_error(-cqe.result()));
+                }
+            }
+
+            Ok(())
+        }
+
+        /// Deallocates the block at the given offset using `FALLOC_FL_PUNCH_HOLE`, which creates a hole in the file
+        /// and releases the associated storage space. On SSDs this triggers the TRIM command for better performance
+        /// and wear leveling.
+        pub async fn trim_block(&mut self, offset: u64) -> std::io::Result<()> {
+            let fd = io_uring::types::Fd(self.fd.as_ref().unwrap().as_raw_fd());
+
+            // FALLOC_FL_PUNCH_HOLE (0x02) | FALLOC_FL_KEEP_SIZE (0x01)
+            const PUNCH_HOLE: i32 = 0x02 | 0x01;
+
+            let trim_e = opcode::Fallocate::new(fd, BLOCK_SIZE as u64)
+                .offset(offset)
+                .mode(PUNCH_HOLE)
+                .build()
+                .user_data(0x44);
+
+            // Lock the ring for this operation
+            let mut ring = self.ring.lock().await;
+
+            unsafe {
+                ring.submission()
+                    .push(&trim_e)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
             }
 
@@ -187,6 +225,16 @@ mod tests {
             "Read data (string): {}",
             String::from_utf8_lossy(&read_buffer.0[..hello.len()])
         );
+
+        // Try trimming the block
+        device.trim_block(0).await?;
+
+        // Read the block again
+        let mut read_buffer = Page4K([0u8; BLOCK_SIZE]);
+        device.read_block(0, &mut read_buffer).await?;
+
+        // Verify the contents are zeroed
+        assert_eq!(&read_buffer.0, &[0u8; BLOCK_SIZE]);
 
         Ok(())
     }
